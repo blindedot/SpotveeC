@@ -20,6 +20,11 @@ on:
       EEVEEREPO:
         description: "Override the repo for EeveeSpotify"
         required: false
+      UPLOADTOSTORES:
+        description: "Upload to AltStore and Scarlet Repo"
+        required: true
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -51,7 +56,7 @@ jobs:
       - name: Set EeveeSpotify Repo if not given
         if: ${{ github.event.inputs.EEVEEREPO == '' }}
         run: |
-          EEVEEREPO=$(echo "whoeevee/EeveeSpotifyReborn")
+          EEVEEREPO=$(echo "blindedot/EeveeSpotifyReborn")
           echo "EEVEEREPO=$EEVEEREPO" >> $GITHUB_ENV
 
       - name: Set up Python 3.13
@@ -510,13 +515,16 @@ jobs:
 
       - name: Construct ChangeLog Pt.8 (Add file name dropdown)
         run: |
+          PATCHSPOTIFYNAME="SpotC++.v${{ env.CHANGEVERSION }}_v${{ env.VANILLASPOTIFYVERSION }}.ipa"
+          ALTPATCHSPOTIFYNAME="SpotC++.v${{ env.CHANGEVERSION }}_v${{ env.VANILLASPOTIFYVERSION }}_ALTSTORESOURCE_ONLY.ipa"
           echo "" >> changelog.txt
           echo "***" >> changelog.txt
           echo "" >> changelog.txt
           echo "<details>" >> changelog.txt
           echo "<summary>Files</summary>" >> changelog.txt
-          echo "SpotC++.v${{ env.CHANGEVERSION }}_v${{ env.VANILLASPOTIFYVERSION }}_ALTSTORESOURCE_ONLY.ipa" >> changelog.txt
-          echo "SpotC++.v${{ env.CHANGEVERSION }}_v${{ env.VANILLASPOTIFYVERSION }}.ipa" >> changelog.txt
+          echo "$PATCHSPOTIFYNAME: <a href='${{ env.RELEASEURL }}'>download</a>" >> changelog.txt
+          echo "<br>" >> changelog.txt
+          echo "$ALTPATCHSPOTIFYNAME: <a href='${{ env.RELEASEURLALTSTORE }}'>download</a>" >> changelog.txt
           echo "</details>" >> changelog.txt
 
       - name: Create Draft Release
@@ -529,28 +537,48 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate download links summary
+        run: |
+          PATCHSPOTIFYNAME="SpotC++.v${{ env.CHANGEVERSION }}_v${{ env.VANILLASPOTIFYVERSION }}.ipa"
+          ALTPATCHSPOTIFYNAME="SpotC++.v${{ env.CHANGEVERSION }}_v${{ env.VANILLASPOTIFYVERSION }}_ALTSTORESOURCE_ONLY.ipa"
+          echo "</details>" >> changelog.txt
+          {
+              echo "#### ✅ IPA is ready"
+              echo
+              echo "| Artifact | Link |"
+              echo "|---|---|"
+              echo "| $PATCHSPOTIFYNAME | [**Download**](${{ env.RELEASEURL }}) |"
+              echo "| $ALTPATCHSPOTIFYNAME | [**Download**](${{ env.RELEASEURLALTSTORE }}) |"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Download AltStore Repo.json
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         run: curl "https://raw.githubusercontent.com/SpotCompiled/SpotC-AltStore-Repo/main/AltStore%20Repo.json" -o ./AltStoreRepo.json
 
       - name: Calculate SpotveeC Filesize
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         run: |
           FILE_SIZE=$(stat -f%z "${{ env.patchedspotify }}")
           echo "SpotveeC File Size: $FILE_SIZE"
           echo "SPOTVSIZE=$FILE_SIZE" >> $GITHUB_ENV
 
       - name: Calculate AltStore SpotveeC Filesize
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         run: |
           FILE_SIZE=$(stat -f%z "${{ env.altpatchedspotify }}")
           echo "AltStore SpotveeC File Size: $FILE_SIZE"
           echo "ALTSPOTVSIZE=$FILE_SIZE" >> $GITHUB_ENV
 
       - name: Fetch the first bullet point from the EeveeSpotify release changelog
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         id: fetch-changelog
         run: |
           BULLET_POINT=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${{ env.EEVEEREPO }}/releases/tags/${{ env.EEVEETAG }} | jq -r '.body' | sed -n 's/^[[:space:]]*[*-+] //p; s/^[[:space:]]* //p' | grep -v '^$' | head -n 1 | awk '{line=tolower($0); if (line ~ /localization|localisation/) print "Improved localizations."; else print $0}')
           echo "BULLET_POINT=$BULLET_POINT" >> $GITHUB_ENV
 
       - name: Set ALTSTORECHANGELOG environment variable
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         run: |
           if [ "${{ env.EEVEESPOTIFY_UPDATED }}" = 'true' ]; then
             ALTSTORECHANGELOG="Updated EeveeSpotify to ${{ env.EEVEEVERSIONNAME }}. ${{ env.BULLET_POINT }}"
@@ -561,6 +589,7 @@ jobs:
           echo "ALTSTORECHANGELOG=$ALTSTORECHANGELOG" >> $GITHUB_ENV
 
       - name: Update AltStore Repo.json
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         run: |
           ENTITLE=$(cat "./Build Components/Entitlements.json")
           PRIVACYKEYS=$(cat "./Build Components/NSDescriptions.json")
@@ -624,15 +653,18 @@ jobs:
             mv AltStoreRepo_updated.json AltStoreRepo.json
 
       - name: Upload updated AltStore Repo.json as artifact
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: UpdatedAltStoreRepo
           path: AltStoreRepo.json
 
       - name: Download Scarlet Repo.json
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         run: curl "https://raw.githubusercontent.com/SpotCompiled/SpotC-Repo/main/Scarlet%20Repo.json" -o ./ScarletRepo.json
 
       - name: Update Scarlet Repo.json
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         run: |
           jq --arg CHANGEVERSION "${{ env.CHANGEVERSION }}" \
              --arg CURRENTDATE "$(date +%Y-%-m-%d)" \
@@ -690,22 +722,8 @@ jobs:
             mv ScarletRepo_updated.json ScarletRepo.json
 
       - name: Upload updated Scarlet Repo.json as artifact
+        if: ${{ github.event.inputs.UPLOADTOSTORES == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: UpdatedScarletRepo
           path: ScarletRepo.json
-
-      - name: Generate download links summary
-        run: |
-          PATCHSPOTIFYNAME="SpotC++.v${{ env.CHANGEVERSION }}_v${{ env.VANILLASPOTIFYVERSION }}.ipa"
-          ALTPATCHSPOTIFYNAME="SpotC++.v${{ env.CHANGEVERSION }}_v${{ env.VANILLASPOTIFYVERSION }}_ALTSTORESOURCE_ONLY.ipa"
-          echo "</details>" >> changelog.txt
-          {
-              echo "## ✅ IPA is ready"
-              echo
-              echo "| Artifact | Link |"
-              echo "|---|---|"
-              echo "| $PATCHSPOTIFYNAME | [**Download**](${{ env.RELEASEURL }}) |"
-              echo "| $ALTPATCHSPOTIFYNAME | [**Download**](${{ env.RELEASEURLALTSTORE }}) |"
-              echo
-            } >> "$GITHUB_STEP_SUMMARY"
